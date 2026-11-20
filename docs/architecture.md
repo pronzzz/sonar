@@ -9,18 +9,24 @@ multiplications.
 ```
 kernel/
   arch/arm64/   boot.S (entry, EL2→EL1, self-relocation), efi.c (UEFI stub),
-                mmu.c, psci.c, smp.c, traps.c, vectors.S, linker.ld
+                efi_update.c (the stub's update loader), mmu.c, psci.c,
+                smp.c, traps.c, vectors.S, linker.ld
   core/         main.c (boot order), console, config, block devices, random
   mm/           pmm.c (page allocator), kmalloc.c
   drivers/      fdt, gic (GICv3), timer + PL031 RTC, pl011, virtio (blk, net,
                 gpu, input, rng), simplefb, ramdisk, fbcon (text console)
   fs/           sonarfs.c, file commands
-  net/          Ethernet/ARP/IPv4/ICMP/UDP (net.c), tcp.c, dhcp.c, dns.c
+  net/          Ethernet/ARP/IPv4/ICMP/UDP (net.c), tcp.c, dhcp.c, dns.c,
+                tls.c (TLS 1.3 client), http.c (HTTP GET with redirects)
+  crypto/       SHA-256/512, HMAC, HKDF, ChaCha20-Poly1305, X25519,
+                Ed25519, the random number generator
+  update/       signed manifests (manifest.c, shared with the UEFI stub),
+                the update command (update.c), the public key
   shell/        line editor and shell
   ui/           desktop.c (compositor and windows), gfx.c (drawing)
   ai/           the DeepSeek engine, assistant, harness and tools
 tools/          host tools: sonarfs.py, mkesp.py, qemu_session.py, ...
-tests/host/     the AI engine and TCP built for the host
+tests/host/     the AI engine, TCP and the crypto built for the host
 ```
 
 ## Boot
@@ -34,6 +40,10 @@ tests/host/     the AI engine and TCP built for the host
    position-independent executable and applies its own
    `R_AARCH64_RELATIVE` relocations, so it runs wherever it is loaded. The
    build refuses any other kind of dynamic relocation.
+   Before anything else, the UEFI stub looks for a signed newer kernel in
+   `/boot/kernel` on the SonarFS system partition, verifies it and starts
+   it in its place with `LoadImage`/`StartImage`, falling back to itself
+   after 3 failed starts ([updates.md](updates.md)).
 2. **Exception level.** If entered at EL2, it sets up EL1 and drops to it.
 3. **MMU.** It identity-maps RAM from the device tree as normal cached
    memory and the UART as device memory (4 KiB pages, 48-bit addresses),
@@ -113,8 +123,13 @@ saved. Disks are flushed (and NVMe controllers shut down) at power-off. Settings
 
 The stack in `kernel/net` has Ethernet, ARP, IPv4, ICMP (`ping`), UDP, TCP
 (with retransmission, tested against a simulated lossy network by `make
-test-net`), DHCP and DNS. `fetch` downloads over HTTP/1.1. There is no
-IPv6 and no TLS.
+test-net`), DHCP and DNS. `http.c` does HTTP/1.1 GET requests with redirects, over TCP
+or over `tls.c`, a TLS 1.3 client with one cipher suite
+(ChaCha20-Poly1305, X25519) on the kernel's own crypto (`kernel/crypto`,
+tested against OpenSSL's results by `make test-crypto`). TLS does not
+verify certificates: it is used for data that is verified some other way,
+namely the signed updates (`update`, [updates.md](updates.md)), and by
+`fetch`, which warns about it. There is no IPv6.
 
 ## DeepSeek
 

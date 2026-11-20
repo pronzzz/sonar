@@ -24,8 +24,13 @@ built-in keyboard and trackpad. See [docs/hardware.md](docs/hardware.md).
   `simple-framebuffer`), PL031 clock.
 - **SonarFS:** an extent-based file system ([format](docs/sonarfs.md))
   with a metadata journal, and a host tool that builds and checks images.
-- **Network:** Ethernet, ARP, IPv4, ICMP, UDP, TCP, DHCP, DNS; `ping`,
-  `host`, and `fetch` over HTTP.
+- **Network:** Ethernet, ARP, IPv4, ICMP, UDP, TCP, DHCP, DNS, TLS 1.3
+  (without certificate checks); `ping`, `host`, and `fetch` over HTTP and
+  HTTPS.
+- **Updates:** `update` installs signed kernels from this repository's
+  GitHub Releases (Ed25519 signature and SHA-256, checked again by the
+  UEFI loader at every boot, with fallback to the built-in kernel)
+  ([docs/updates.md](docs/updates.md)).
 - **Desktop:** a compositor with windows, a permanent taskbar with a
   DeepSeek button and universal search (apps, commands, files, arithmetic,
   questions), a terminal, a system monitor and a file browser
@@ -65,7 +70,8 @@ This builds `build/Image`, the kernel (about 330 KB).
 | `make esp` | build `build/esp.img`, a UEFI boot disk (for a USB stick) |
 | `make run-uefi` | boot `build/esp.img` through UEFI firmware (edk2) in QEMU |
 | `make smoke` | boot once and check the shell, file system and CPUs |
-| `make test-host` | build the AI engine for this computer and run the TCP tests |
+| `make test-host` | build the AI engine for this computer and run the TCP and crypto tests |
+| `make test-update` | install updates end to end in QEMU with UEFI, from a stand-in for GitHub |
 
 Options: `MODEL=path/to/model.gguf` attaches a model; `RAM=8G CPUS=4` set
 the guest's memory and processors (defaults 2G and 4). On an Apple silicon
@@ -123,7 +129,7 @@ Model card: [deepseek-ai/DeepSeek-R1-0528-Qwen3-8B](https://huggingface.co/deeps
 | files | `ls`, `cd`, `cat`, `head`, `write`, `append`, `cp`, `mv`, `rm`, `mkdir`, `find`, `grep`, `stat`, `wc`, `hexdump` |
 | disks | `df`, `disks`, `mount`, `mkfs`, `fstest` |
 | network | `ifconfig`, `dhcp`, `ping`, `host`, `fetch`, `netstat`, `arp` |
-| system | `info`, `uptime`, `config`, `time`, `desktop`, `setup`, `models` |
+| system | `info`, `uptime`, `config`, `time`, `desktop`, `setup`, `models`, `update`, `sha256` |
 | DeepSeek | `?`, `dsh`, `chat`, `explain` |
 
 The shell has no pipes, but `>` and `>>` redirect output to files.
@@ -134,6 +140,11 @@ The shell has no pipes, but `>` and `>>` redirect output to files.
   checked) and `smptest` (the same computation on one and all CPUs).
 - `make test-net`: the kernel's TCP code against a simulated network that
   drops, reorders and duplicates packets.
+- `make test-crypto`: SHA-2, HMAC, HKDF, ChaCha20-Poly1305, X25519 and
+  Ed25519 against OpenSSL's results and RFC test vectors.
+- `make test-update`: signed updates in QEMU with UEFI firmware: bad
+  signatures and tampered images rejected, install, boot, fallback after
+  a kernel that fails to start, rollback ([docs/updates.md](docs/updates.md)).
 - `make test-host`: builds `build/aitest`, the AI engine for the host, to
   run a model directly (`build/aitest MODEL.gguf --chat "hello"`).
 - `python3 tools/sonarfs.py fsck build/system.img` checks a disk image the
@@ -146,7 +157,12 @@ The shell has no pipes, but `>` and `>>` redirect output to files.
   interrupt controller (AIC) are not documented
   ([docs/hardware.md](docs/hardware.md)).
 - No user-space programs or processes: everything runs in the kernel.
-- No HTTPS, no IPv6.
+- No IPv6. HTTPS does not verify certificates, so it protects against
+  eavesdropping but not against an attacker who can intercept traffic;
+  updates are safe anyway because they are signed
+  ([docs/updates.md](docs/updates.md)).
+- Updates start only on UEFI boots, and while the GitHub repository is
+  private, devices need a token to see its releases.
 - The SonarFS journal covers metadata only: after a power cut the file
   system is consistent, but a file being written can hold old or partly
   new data.

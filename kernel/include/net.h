@@ -25,6 +25,7 @@ enum {
     NET_EINVAL = -8,
     NET_ECLOSED = -9,   /* connection closed */
     NET_ENODEV = -10,   /* no network interface */
+    NET_ETLS = -11,     /* TLS handshake or record error (details: tls_error) */
 };
 const char *net_strerror(int e);
 
@@ -103,3 +104,14 @@ void tcp_list(void); /* print connections (netstat) */
 void tcp_input(ip4_t src, ip4_t dst, const u8 *seg, size_t len);
 void tcp_tick(void);
 void tcp_flush(void); /* send acknowledgments deferred during a batch */
+
+/* TLS 1.3 client over a TCP connection (kernel/net/tls.c). Takes over the
+ * connection: tls_close (or a failed tls_connect) closes it. The server's
+ * certificate is NOT verified; see the comment at the top of tls.c. */
+struct tls_conn;
+struct tls_conn *tls_connect(struct tcp_conn *tcp, const char *host, u32 timeout_ms,
+                             char *err, size_t errlen);
+ssize_t tls_send(struct tls_conn *t, const void *buf, size_t len);
+ssize_t tls_recv(struct tls_conn *t, void *buf, size_t len, u32 timeout_ms); /* 0 at end */
+const char *tls_error(struct tls_conn *t); /* why the last call failed */
+void tls_close(struct tls_conn *t);

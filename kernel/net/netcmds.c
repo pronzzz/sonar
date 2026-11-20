@@ -3,6 +3,7 @@
 #include "config.h"
 #include "console.h"
 #include "fs.h"
+#include "http.h"
 #include "irq.h"
 #include "mm.h"
 #include "netpriv.h"
@@ -394,21 +395,67 @@ static int copy_chunked(struct reader *r, struct sink *s)
     return 0;
 }
 
+/* HTTPS through kernel/net/http.c. The server is not authenticated (see
+ * kernel/net/tls.c), which fetch says before downloading. */
+static bool https_body(void *ctx, const void *d, size_t n) { return sink_write(ctx, d, n) == 0; }
+static void https_progress(void *ctx, u64 done, u64 total) { ((struct sink *)ctx)->total = total; }
+
+static int fetch_https(const char *url, const char *file)
+{
+    printk("fetch: note: HTTPS here does not check the server's certificate, so it guards\n"
+           "  against eavesdropping but not against an impostor server\n");
+    struct sink s = { .fd = -1, .t0 = time_ms(), .progress = file != NULL };
+    if (file) {
+        s.fd = fs_open(file, O_WRITE | O_CREATE | O_TRUNC);
+        if (s.fd < 0) {
+            printk("fetch: %s: %s\n", file, fs_strerror(s.fd));
+            return 1;
+        }
+    }
+    struct http_get *g = kzalloc(sizeof(*g));
+    if (!g) {
+        if (file)
+            fs_close(s.fd);
+        return 1;
+    }
+    g->url = url;
+    g->body = https_body;
+    g->ctx = &s;
+    g->progress = https_progress;
+    bool ok = http_get(g);
+    if (file) {
+        fs_close(s.fd);
+        show_progress(&s, true);
+        printk("\n");
+    }
+    if (!ok) {
+        printk("fetch: %s\n", g->error);
+        if (file) {
+            fs_unlink(file);
+            printk("fetch: removed the incomplete %s\n", file);
+        }
+    } else if (file) {
+        char sz[24];
+        fmt_bytes(s.done, sz, sizeof(sz));
+        printk("fetch: saved %s (%s)%s\n", file, sz, g->redirects ? " after redirects" : "");
+    }
+    kfree(g);
+    return ok ? 0 : 1;
+}
+
 static int cmd_fetch(int argc, char **argv)
 {
     if (argc < 2 || argc > 3) {
-        printk("usage: fetch http://HOST[:PORT]/PATH [FILE]\n"
-               "  Downloads with HTTP/1.1. Without FILE the body is printed.\n"
+        printk("usage: fetch http[s]://HOST[:PORT]/PATH [FILE]\n"
+               "  Downloads with HTTP/1.1 (over TLS 1.3 for https). Without FILE the body is\n"
+               "  printed.\n"
                "  Example (model served from the host machine running QEMU):\n"
                "    fetch http://10.0.2.2:8000/model.gguf /models/model.gguf\n");
         return 1;
     }
     struct url u;
-    if (!strncmp(argv[1], "https://", 8)) {
-        printk("fetch: HTTPS is not supported yet (Sonar has no TLS). Download on another "
-               "computer and serve it over http://, or attach it as a disk.\n");
-        return 1;
-    }
+    if (!strncmp(argv[1], "https://", 8))
+        return fetch_https(argv[1], argc > 2 ? argv[2] : NULL);
     if (!parse_url(argv[1], &u, NULL)) {
         printk("fetch: not an http:// URL: %s\n", argv[1]);
         return 1;
@@ -485,7 +532,7 @@ static int cmd_fetch(int argc, char **argv)
             struct url next;
             if (!parse_url(location, &next, &u)) {
                 printk("fetch: redirected to %s, which is not supported%s\n", location,
-                       !strncmp(location, "https://", 8) ? " (HTTPS needs TLS)" : "");
+                       !strncmp(location, "https://", 8) ? " here; fetch that https:// URL" : "");
                 break;
             }
             printk("fetch: redirected to %s\n", location);

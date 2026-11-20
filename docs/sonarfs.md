@@ -60,7 +60,7 @@ writable (64 contiguous free blocks, marked used in the bitmap).
 ## Inodes (128 bytes)
 
 Inode numbers start at 1; inode 1 is the root directory. Inode *n* is at
-byte `(n - 1) * 128` of the inode table. A `type` of 0 means free.
+byte `n * 128` of the inode table (the first slot, inode 0, is never used). A `type` of 0 means free.
 
 | Offset | Size | Field |
 | --- | --- | --- |
