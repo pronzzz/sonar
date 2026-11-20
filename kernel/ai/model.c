@@ -396,6 +396,7 @@ int model_load(struct model *m, struct ai_file *f, int n_ctx, ai_progress_fn pro
             }
             if (progress)
                 progress(pctx, off + n, data_size);
+            ai_yield();
             if (ai_should_abort()) {
                 seterr(err, errlen, "cancelled");
                 goto fail;
@@ -639,6 +640,7 @@ static void forward_batch(struct model *m, const int *tokens, int T, int pos0, b
     }
     for (int l = 0; l < in->n_layer; l++) {
         const struct layer_w *w = &m->layers[l];
+        ai_yield();
         for (int t = 0; t < T; t++)
             rmsnorm(m->xb + (size_t)t * E, m->x + (size_t)t * E, w->attn_norm, E, in->rms_eps);
         qmat_mul(&w->wq, m->xb, E, m->q, QD, T);

@@ -36,8 +36,8 @@ purple, Debian's swirl red), drawn with Sonar's own artwork.
 - **Search field:** universal search (below).
 - **Window buttons:** one per open window. Click to bring a window to the
   front, or to minimize it when it already is.
-- **Tray:** DeepSeek status (ready, or no model), network, memory use and
-  the clock (UTC). Point at an item for details; clicking network or
+- **Tray:** DeepSeek status (ready, thinking, or no model), network,
+  memory use and the clock (UTC). Point at an item for details; clicking network or
   memory opens System Monitor.
 
 **Desktop launchers** on the left: Home, Terminal, DeepSeek and Monitor.
@@ -140,6 +140,12 @@ Typing goes to the Terminal unless search or the DeepSeek box is open.
   windows keep updating while DeepSeek is streaming an answer. While search
   or the DeepSeek box is open, the keyboard driver sends keys to the
   desktop instead of the console.
+- While DeepSeek computes, the engine hands the boot CPU back to the
+  desktop every 25 ms (between transformer layers), so the pointer and
+  windows keep moving even before the first word of an answer appears.
+- Icons (`kernel/ui/icons.c`) are built from shapes described by signed
+  distance functions, so their edges are antialiased at any size. Each is
+  rendered once per size and cached.
 - Interface text uses a proportional rendering of Sonar's 8×16 font with
   smoothed diagonals; the Terminal stays monospaced.
 - Drawing is software only: rectangles, antialiased rounded corners,

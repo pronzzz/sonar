@@ -31,6 +31,7 @@
 #include "fbcon.h"
 #include "fs.h"
 #include "gfx.h"
+#include "icons.h"
 #include "irq.h"
 #include "kernel.h"
 #include "mm.h"
@@ -217,123 +218,13 @@ void ui_key(int key) { push_event((struct uev){ UEV_KEY, 0, true, 0, 0, key }); 
 bool ui_desktop_active(void) { return active; }
 
 /* ---------------------------------------------------------------- icons */
-enum {
-    IC_TERM, IC_FILES, IC_MONITOR, IC_ABOUT, IC_DEEPSEEK, IC_CONSOLE, IC_POWER, IC_RESTART,
-    IC_CMD, IC_FILE, IC_FOLDER, IC_CALC, IC_HOME, IC_SETUP,
-};
-
 static void ring(struct surface *s, int cx, int cy, int r, int t, u32 c, u32 bg)
 {
     gfx_disc(s, cx, cy, r, c);
     gfx_disc(s, cx, cy, r - t, bg);
 }
 
-/* The Sonar mark: a dot and two arcs of a ping. */
-static void sonar_mark(struct surface *s, int cx, int cy, int r, u32 c, u32 bg)
-{
-    ring(s, cx, cy, r, MAX(r / 5, S), c, bg);
-    ring(s, cx, cy, r * 6 / 10, MAX(r / 5, S), c, bg);
-    gfx_disc(s, cx, cy, MAX(r / 4, S), c);
-    /* cut the rings on the lower left so they read as a signal */
-    gfx_fill(s, rect_make(cx - r - S, cy + r / 6, r - r / 6, r), bg);
-}
-
-/* A whale: DeepSeek's mascot animal, drawn from simple shapes. */
-static void whale(struct surface *s, int cx, int cy, int sz, u32 c, u32 eye)
-{
-    int bw = sz * 62 / 100, bh = sz * 34 / 100;
-    gfx_round_rect(s, rect_make(cx - bw / 2 + sz / 14, cy - bh / 2 + sz / 16, bw, bh), bh / 2, c, 256);
-    /* tail: two lobes up and to the left */
-    int tx = cx - bw / 2 + sz / 14, ty = cy - bh / 6;
-    gfx_disc(s, tx - sz / 9, ty - sz / 7, MAX(sz / 10, S), c);
-    gfx_disc(s, tx - sz / 20, ty - sz / 5, MAX(sz / 12, S), c);
-    gfx_round_rect(s, rect_make(tx - sz / 10, ty - sz / 8, sz / 7, sz / 5), sz / 14, c, 256);
-    gfx_disc(s, cx + bw / 4 + sz / 14, cy - sz / 30, MAX(sz / 22, S), eye);
-}
-
-static void draw_icon(struct surface *s, int kind, struct rect r)
-{
-    int sz = MIN(r.w, r.h), cx = r.x + r.w / 2, cy = r.y + r.h / 2;
-    int rad = MAX(sz / 5, 2 * S);
-    int ts = sz >= 40 * S ? 2 * S : S; /* glyph text scale */
-    switch (kind) {
-    case IC_TERM:
-    case IC_CMD:
-        gfx_round_rect(s, r, rad, kind == IC_TERM ? 0x13101c : 0x2b2540, 256);
-        gfx_frame(s, rect_make(r.x, r.y, r.w, r.h), 0xffffff, 26);
-        gfx_text_bold(s, r.x + sz / 7, cy - 8 * ts, kind == IC_TERM ? ">_" : ">", C_GOOD, ts);
-        break;
-    case IC_FILES:
-    case IC_FOLDER:
-    case IC_HOME: {
-        u32 c = kind == IC_HOME ? 0xb7a8ff : 0xf0b54d;
-        gfx_round_rect(s, rect_make(r.x + sz / 12, r.y + sz / 5, sz * 4 / 10, sz / 5), rad / 2,
-                       rgb_mix(c, 0, 50), 256);
-        gfx_round_rect(s, rect_make(r.x + sz / 12, r.y + sz * 3 / 10, sz - sz / 6, sz * 6 / 10), rad / 2,
-                       c, 256);
-        if (kind == IC_HOME) { /* a little house */
-            int hx = cx, hy = cy + sz / 8;
-            for (int k = 0; k < sz / 6; k++)
-                gfx_fill(s, rect_make(hx - k, hy - sz / 6 + k, 2 * k + 1, 1), 0x3b2f73);
-            gfx_fill(s, rect_make(hx - sz / 9, hy, 2 * sz / 9, sz / 7), 0x3b2f73);
-        }
-        break;
-    }
-    case IC_MONITOR: {
-        gfx_round_rect(s, r, rad, 0x138a8c, 256);
-        static const int hs[3] = { 40, 75, 55 };
-        int bw = MAX(sz / 6, S);
-        for (int k = 0; k < 3; k++) {
-            int bh = sz * hs[k] / 120;
-            gfx_round_rect(s, rect_make(cx - bw * 2 + k * bw * 3 / 2 - bw / 4, cy + sz / 4 - bh, bw, bh),
-                           MAX(bw / 3, 1), 0xffffff, 235);
-        }
-        break;
-    }
-    case IC_ABOUT:
-        gfx_disc(s, cx, cy, sz / 2, C_ACCENT_D);
-        gfx_text_bold(s, cx - 4 * ts, cy - 8 * ts, "i", 0xffffff, ts);
-        break;
-    case IC_DEEPSEEK:
-        gfx_disc(s, cx, cy, sz / 2, C_DS);
-        whale(s, cx, cy, sz, 0xffffff, C_DS);
-        break;
-    case IC_CONSOLE:
-        gfx_round_rect(s, r, rad, 0x2b2540, 256);
-        gfx_frame(s, rect_make(r.x + sz / 6, r.y + sz / 4, sz * 2 / 3, sz / 2), 0xffffff, 200);
-        break;
-    case IC_POWER:
-    case IC_RESTART: {
-        u32 bg = kind == IC_POWER ? C_RED : 0x3d6fd1;
-        gfx_disc(s, cx, cy, sz / 2, bg);
-        ring(s, cx, cy, sz * 3 / 10, MAX(sz / 12, S), 0xffffff, bg);
-        if (kind == IC_POWER) {
-            gfx_fill(s, rect_make(cx - sz / 8, cy - sz * 4 / 10, sz / 4, sz * 3 / 10), bg);
-            gfx_fill(s, rect_make(cx - MAX(sz / 24, 1), cy - sz * 4 / 10, MAX(sz / 12, S), sz * 3 / 10),
-                     0xffffff);
-        } else {
-            gfx_fill(s, rect_make(cx, cy - sz * 4 / 10, sz / 4, sz / 4), bg);
-            for (int k = 0; k < sz / 8; k++)
-                gfx_fill(s, rect_make(cx + k / 2, cy - sz * 3 / 10 - sz / 8 + k, sz / 8 - k, 1), 0xffffff);
-        }
-        break;
-    }
-    case IC_FILE:
-        gfx_round_rect(s, rect_make(cx - sz * 3 / 10, r.y + sz / 10, sz * 6 / 10, sz * 8 / 10), rad / 2,
-                       0xcfc8e6, 256);
-        for (int k = 0; k < 3; k++)
-            gfx_hline(s, cx - sz / 6, cy - sz / 8 + k * sz / 6, sz / 3, 0x6f688a);
-        break;
-    case IC_CALC:
-        gfx_round_rect(s, r, rad, 0x8a4fc9, 256);
-        gfx_text_bold(s, cx - 4 * ts, cy - 8 * ts, "=", 0xffffff, ts);
-        break;
-    case IC_SETUP:
-        gfx_disc(s, cx, cy, sz / 2, 0x5a5374);
-        ring(s, cx, cy, sz / 4, MAX(sz / 10, S), 0xffffff, 0x5a5374);
-        break;
-    }
-}
+static void draw_icon(struct surface *s, int kind, struct rect r) { icon_draw(s, kind, r); }
 
 /* ---------------------------------------------------------------- windows */
 struct window {
@@ -629,7 +520,7 @@ static void layout_bar(void)
     r_net = rect_make(rx - 30 * S, y + 6 * S, 30 * S, h - 12 * S);
     rx = r_net.x - 6 * S;
     const char *model = ai_model_name();
-    int aw = 30 * S + tw(model ? "DeepSeek ready" : "No model");
+    int aw = 34 * S + MAX(tw(model ? "DeepSeek ready" : "No model"), tw("Thinking..."));
     r_ai = rect_make(rx - aw, y + 7 * S, aw, h - 14 * S);
     rx = r_ai.x - 12 * S;
     /* window buttons in the middle */
@@ -1236,7 +1127,9 @@ static void tooltip_text(char *buf, size_t n)
     case HIT_TRAY_AI: {
         const char *m = ai_model_name();
         u32 sp = ai_last_speed_x10();
-        if (m && sp)
+        if (m && ai_busy())
+            snprintf(buf, n, "%s is working: Ctrl-C in the Terminal stops it", m);
+        else if (m && sp)
             snprintf(buf, n, "%s, last answer %u.%u tokens/s", m, sp / 10, sp % 10);
         else
             snprintf(buf, n, "%s", m ? m : "No DeepSeek model loaded: open DeepSeek Setup");
@@ -1313,8 +1206,7 @@ static void draw_bar(void)
 
     /* menu */
     bar_button(r_menu, hover_hit == HIT_MENU, popup == POP_MENU);
-    sonar_mark(&back, r_menu.x + 17 * S, r_menu.y + r_menu.h / 2, 10 * S, C_ACCENT,
-               popup == POP_MENU ? rgb_mix(0x16121f, C_SEL, 200) : hover_hit == HIT_MENU ? C_HOVER : 0x18131f);
+    draw_icon(&back, IC_SONAR, rect_make(r_menu.x + 6 * S, r_menu.y + (r_menu.h - 24 * S) / 2, 24 * S, 24 * S));
     textb(&back, r_menu.x + 34 * S, r_menu.y + TEXT_Y(r_menu.h), "Sonar", C_TEXT);
 
     /* DeepSeek */
@@ -1343,11 +1235,18 @@ static void draw_bar(void)
 
     /* tray: DeepSeek status */
     const char *model = ai_model_name();
+    bool busy = ai_busy();
     bar_button(r_ai, hover_hit == HIT_TRAY_AI, false);
-    gfx_round_rect(&back, r_ai, r_ai.h / 2, model ? 0x1d2a5a : 0x3a2b1a, 200);
-    gfx_disc(&back, r_ai.x + 14 * S, r_ai.y + r_ai.h / 2, 4 * S, model ? C_GOOD : C_WARN);
-    text(&back, r_ai.x + 24 * S, r_ai.y + TEXT_Y(r_ai.h), model ? "DeepSeek ready" : "No model",
-         model ? C_TEXT : C_WARN);
+    gfx_round_rect(&back, r_ai, r_ai.h / 2, busy ? 0x2a2470 : model ? 0x1d2a5a : 0x3a2b1a, 200);
+    if (busy) { /* three dots that take turns */
+        int ph = (int)(time_ms() / 250 % 3);
+        for (int k = 0; k < 3; k++)
+            gfx_disc(&back, r_ai.x + 9 * S + k * 6 * S, r_ai.y + r_ai.h / 2, 2 * S, k == ph ? 0xffffff : C_ACCENT_D);
+    } else {
+        gfx_disc(&back, r_ai.x + 14 * S, r_ai.y + r_ai.h / 2, 4 * S, model ? C_GOOD : C_WARN);
+    }
+    text(&back, r_ai.x + (busy ? 28 : 24) * S, r_ai.y + TEXT_Y(r_ai.h),
+         busy ? "Thinking..." : model ? "DeepSeek ready" : "No model", model ? C_TEXT : C_WARN);
 
     /* network: signal bars */
     struct netif *ni = net_iface();
@@ -1452,7 +1351,7 @@ static void draw_popup(void)
     pop_frame();
     char buf[160];
     if (popup == POP_MENU) {
-        sonar_mark(&back, pop_r.x + 30 * S, pop_r.y + 28 * S, 14 * S, C_ACCENT, C_POP);
+        draw_icon(&back, IC_SONAR, rect_make(pop_r.x + 14 * S, pop_r.y + 10 * S, 34 * S, 34 * S));
         textb(&back, pop_r.x + 54 * S, pop_r.y + 12 * S, OS_NAME " " OS_VERSION, C_TEXT);
         text(&back, pop_r.x + 54 * S, pop_r.y + 30 * S, "with DeepSeek built in", C_MUTED);
         gfx_hline(&back, pop_r.x + 12 * S, pop_r.y + MENU_HEAD - 4 * S, pop_r.w - 24 * S, C_FRAME);
@@ -2002,7 +1901,7 @@ static void paint_about(struct window *w)
     gfx_fill(s, rect_make(0, 0, s->w, s->h), C_BODY);
     gfx_vgradient(s, rect_make(0, 0, s->w, 96 * S), 0x3a2e6e, C_BODY);
     int x = 24 * S, y = 22 * S;
-    sonar_mark(s, x + 24 * S, y + 24 * S, 24 * S, 0xffffff, rgb_mix(0x3a2e6e, C_BODY, 60));
+    draw_icon(s, IC_SONAR, rect_make(x, y, 50 * S, 50 * S));
     gfx_text_bold(s, x + 64 * S, y + 2 * S, OS_NAME " " OS_VERSION, C_TEXT, 2 * S);
     text(s, x + 66 * S, y + 36 * S, "An operating system with DeepSeek built in", C_MUTED);
     y = 112 * S;
@@ -2326,6 +2225,13 @@ static void tick(void)
         }
     }
     u64 now = time_ms();
+    static u64 last_busy_frame;
+    if (ai_busy() && now - last_busy_frame >= 250) {
+        last_busy_frame = now;
+        damage(r_ai);
+        if (visible(W_MONITOR))
+            repaint(W_MONITOR);
+    }
     if (now - last_second >= 1000) {
         last_second = now;
         sample_net();

@@ -41,6 +41,7 @@ void ai_parallel_for(int n, int grain, ai_par_fn fn, void *ctx);
 int ai_num_threads(void);
 u64 ai_time_ns(void);
 bool ai_should_abort(void); /* user pressed Ctrl-C */
+void ai_yield(void);        /* long computation: let the system run briefly */
 bool ai_cpu_has_dotprod(void); /* ARMv8.2 SDOT/UDOT available */
 
 /* Random-access reader for a model file (or a disk holding one). */

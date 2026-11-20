@@ -41,6 +41,24 @@ int ai_num_threads(void) { return smp_get_workers(); }
 u64 ai_time_ns(void) { return time_ns(); }
 bool ai_should_abort(void) { return console_interrupted(); }
 
+/* Reading a long prompt keeps the boot CPU busy for up to a minute before
+ * any text is printed. Run the console's idle work (the desktop: pointer,
+ * windows, taskbar) every 25 ms meanwhile, so the screen does not freeze. */
+static u64 last_yield_ms, last_busy_ms;
+void ai_yield(void)
+{
+    if (smp_cpu_id() != 0)
+        return;
+    u64 now = time_ms();
+    last_busy_ms = now;
+    if (now - last_yield_ms < 25)
+        return;
+    last_yield_ms = now;
+    console_run_idle();
+}
+
+bool ai_busy(void) { return last_busy_ms && time_ms() - last_busy_ms < 400; }
+
 bool ai_cpu_has_dotprod(void)
 {
     /* ID_AA64ISAR0_EL1.DP, bits [47:44]: 1 = SDOT/UDOT implemented. */

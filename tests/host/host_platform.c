@@ -43,6 +43,7 @@ u64 ai_time_ns(void)
 }
 
 bool ai_should_abort(void) { return false; }
+void ai_yield(void) {}
 
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
