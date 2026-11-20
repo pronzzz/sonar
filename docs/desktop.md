@@ -19,7 +19,7 @@ keyboards, mice and absolute pointers (as in Apple's Virtualization
 framework). With a tablet or absolute pointer the pointer follows the
 host's mouse exactly.
 
-![Universal search](images/desktop-search.png)
+![Universal search](images/search.png)
 
 ## What is on screen
 
@@ -120,6 +120,12 @@ written in C, which is what every entry point above uses.
 | F5 | About (show or hide) |
 
 Typing goes to the Terminal unless search or the DeepSeek box is open.
+
+`screenshot [FILE]` saves the screen as a PNG (default
+`/home/screenshot.png`), without the pointer. `desktop open WHAT [TEXT]`
+opens part of the desktop from the shell, for scripts and demos: `search`
+or `deepseek` (with the text typed in), `menu`, `terminal`, `monitor`,
+`files [PATH]`, `about`, or `close` for an open popup.
 
 `desktop off` makes the full-screen console the default at boot;
 `desktop on` turns the desktop back on (config `ui.desktop`).

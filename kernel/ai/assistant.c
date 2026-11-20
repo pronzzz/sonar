@@ -498,6 +498,7 @@ struct emit_state {
     char tag[16];
     int tag_len;
     bool in_call;
+    bool in_fake_response; /* the model writing a <tool_response> itself */
     char tail[16];
     int tail_len;
 };
@@ -543,6 +544,18 @@ static bool emit(void *ctx, const char *s, int len)
         printk(e->show_think ? RESET "\n" : "\r\x1b[K");
         return true;
     }
+    /* Only the system writes tool responses. A model sometimes imitates one
+     * (often an empty "(None)") before answering: keep it off the screen. */
+    if (len == 15 && !memcmp(s, "<tool_response>", 15)) {
+        e->in_fake_response = true;
+        return true;
+    }
+    if (len == 16 && !memcmp(s, "</tool_response>", 16)) {
+        e->in_fake_response = false;
+        return true;
+    }
+    if (e->in_fake_response)
+        return true;
     if (e->in_think) {
         e->think_tokens++;
         if (e->show_think)

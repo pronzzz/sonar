@@ -58,6 +58,7 @@ void ai_yield(void)
 }
 
 bool ai_busy(void) { return last_busy_ms && time_ms() - last_busy_ms < 400; }
+void ai_done(void) { last_busy_ms = 0; }
 
 bool ai_cpu_has_dotprod(void)
 {

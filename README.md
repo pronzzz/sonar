@@ -13,6 +13,18 @@ as it would on a real computer and has drivers for NVMe disks and USB
 keyboards and mice, but not yet for a real laptop's Wi-Fi or Apple's
 built-in keyboard and trackpad. See [docs/hardware.md](docs/hardware.md).
 
+![The Sonar desktop: DeepSeek reads a file and answers in the Terminal](docs/images/desktop.png)
+
+| Universal search | The DeepSeek box |
+| --- | --- |
+| ![Search finds apps, commands and files, or asks DeepSeek](docs/images/search.png) | ![Ask DeepSeek from the taskbar](docs/images/deepseek.png) |
+| **The Sonar menu** | **About Sonar** |
+| ![Applications and power](docs/images/menu.png) | ![Version and keyboard shortcuts](docs/images/about.png) |
+
+Screenshots from Sonar running in Keelson on an M1 MacBook Pro, with the
+DeepSeek-R1-0528-Qwen3-8B model (Q4_K_M), taken with Sonar's own
+`screenshot` command.
+
 ## What's in it
 
 - **Kernel:** AArch64, boots from QEMU `-kernel`, U-Boot-style loaders
@@ -129,7 +141,7 @@ Model card: [deepseek-ai/DeepSeek-R1-0528-Qwen3-8B](https://huggingface.co/deeps
 | files | `ls`, `cd`, `cat`, `head`, `write`, `append`, `cp`, `mv`, `rm`, `mkdir`, `find`, `grep`, `stat`, `wc`, `hexdump` |
 | disks | `df`, `disks`, `mount`, `mkfs`, `fstest` |
 | network | `ifconfig`, `dhcp`, `ping`, `host`, `fetch`, `netstat`, `arp` |
-| system | `info`, `uptime`, `config`, `time`, `desktop`, `setup`, `models`, `update`, `sha256` |
+| system | `info`, `uptime`, `config`, `time`, `desktop`, `screenshot`, `setup`, `models`, `update`, `sha256` |
 | DeepSeek | `?`, `dsh`, `chat`, `explain` |
 
 The shell has no pipes, but `>` and `>>` redirect output to files.

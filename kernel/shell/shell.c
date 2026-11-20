@@ -171,7 +171,9 @@ static int run_argv(int argc, char **argv)
         printk("%s: command not found. Type 'help', or ask the AI: ? <question>\n", argv[0]);
         return 127;
     }
-    return c->fn(argc, argv);
+    int r = c->fn(argc, argv);
+    ai_done(); /* whatever DeepSeek computed for it is finished */
+    return r;
 }
 
 int shell_exec(const char *line)

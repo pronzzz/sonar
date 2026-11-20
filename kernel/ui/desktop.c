@@ -148,7 +148,8 @@ static volatile int ptr_x, ptr_y;
 static volatile bool ptr_seen, ptr_abs;
 static volatile bool button_down[3];
 static int cur_x = -1000, cur_y = -1000; /* where the pointer is drawn */
-static volatile bool grab;               /* a desktop text field has the keyboard */
+static volatile bool grab; /* a desktop text field has the keyboard */
+static bool ptr_hidden;    /* leave the pointer out (screenshots) */
 
 static void push_event(struct uev e)
 {
@@ -775,6 +776,28 @@ static bool looks_like_question(const char *q)
     return false;
 }
 
+/* Any word of four letters or more in the query names the app ("what is
+ * using memory" finds System Monitor). */
+static bool word_match(const struct app *a, const char *q)
+{
+    char w[32];
+    while (*q) {
+        while (*q == ' ')
+            q++;
+        size_t n = 0;
+        while (q[n] && q[n] != ' ')
+            n++;
+        if (n >= 4 && n < sizeof(w)) {
+            memcpy(w, q, n);
+            w[n] = 0;
+            if (icontains(a->name, w) || icontains(a->keywords, w))
+                return true;
+        }
+        q += n;
+    }
+    return false;
+}
+
 static const char *const hidden_cmds[] = { "fstest", "smptest", "jcrash", "gpustat", "?", "chat" };
 
 static void add_result(int kind, int app, const char *label, const char *detail, const char *arg)
@@ -817,7 +840,7 @@ static void search_update(void)
         add_result(R_CALC, 0, buf, q, val);
     }
     for (int a = 0; a < NAPP; a++)
-        if (icontains(apps[a].name, q) || icontains(apps[a].keywords, q))
+        if (icontains(apps[a].name, q) || icontains(apps[a].keywords, q) || word_match(&apps[a], q))
             add_result(R_APP, a, apps[a].name, apps[a].detail, NULL);
     /* commands: the first word names a command */
     char first[40];
@@ -1439,7 +1462,7 @@ static void compose(struct rect c)
     if (popup != POP_NONE && !rect_empty(rect_intersect(pop_outer(), c)))
         draw_popup();
     draw_tip();
-    if (ptr_seen)
+    if (ptr_seen && !ptr_hidden)
         draw_pointer(cur_x, cur_y);
     surface_reset_clip(&back);
 }
@@ -2340,9 +2363,51 @@ static int cmd_desktop(int argc, char **argv)
         printk("desktop is %s (%dx%d). Use: desktop on | off\n", active ? "on" : "off", W, H);
         return 0;
     }
+    if (!strcmp(argv[1], "open") && argc >= 3) { /* for scripts and demos */
+        if (!active)
+            desktop_enter();
+        const char *what = argv[2];
+        if (!strcmp(what, "search") || !strcmp(what, "deepseek")) {
+            bool srch = what[0] == 's';
+            open_popup(srch ? POP_SEARCH : POP_DEEPSEEK);
+            struct field *f = srch ? &search_f : &ask_f;
+            for (int i = 3; i < argc; i++) {
+                if (i > 3)
+                    field_key(f, ' ');
+                for (const char *t = argv[i]; *t; t++)
+                    field_key(f, (u8)*t);
+            }
+            if (srch) {
+                index_files();
+                idx_wanted = false;
+                search_update();
+            }
+            refresh_popup();
+        } else if (!strcmp(what, "menu")) {
+            open_popup(POP_MENU);
+        } else if (!strcmp(what, "terminal")) {
+            close_popup();
+            show_window(W_TERM);
+        } else if (!strcmp(what, "monitor")) {
+            show_window(W_MONITOR);
+        } else if (!strcmp(what, "files")) {
+            if (argc > 3)
+                files_load(argv[3]);
+            show_window(W_FILES);
+        } else if (!strcmp(what, "about")) {
+            show_window(W_ABOUT);
+        } else if (!strcmp(what, "close")) {
+            close_popup();
+        } else {
+            printk("desktop open: search, deepseek, menu, terminal, monitor, files, about or close\n");
+            return 1;
+        }
+        present();
+        return 0;
+    }
     bool on = !strcmp(argv[1], "on");
     if (!on && strcmp(argv[1], "off")) {
-        printk("usage: desktop [on|off]\n");
+        printk("usage: desktop [on|off|open WHAT [TEXT]]\n");
         return 1;
     }
     config_set("ui.desktop", on ? "on" : "off");
@@ -2354,5 +2419,123 @@ static int cmd_desktop(int argc, char **argv)
         desktop_leave();
     return 0;
 }
-SHELL_COMMAND(desktop, "desktop", "desktop [on|off]",
+SHELL_COMMAND(desktop, "desktop", "desktop [on|off|open WHAT [TEXT]]",
               "show the windowed desktop, or only the full-screen console", cmd_desktop);
+
+/* ---------------------------------------------------------------- screenshot */
+static u32 crc_table[256];
+
+static u32 crc32_update(u32 c, const u8 *p, size_t n)
+{
+    if (!crc_table[1])
+        for (u32 i = 0; i < 256; i++) {
+            u32 v = i;
+            for (int k = 0; k < 8; k++)
+                v = v & 1 ? 0xedb88320 ^ (v >> 1) : v >> 1;
+            crc_table[i] = v;
+        }
+    for (size_t i = 0; i < n; i++)
+        c = crc_table[(c ^ p[i]) & 0xff] ^ (c >> 8);
+    return c;
+}
+
+static u8 *put32(u8 *p, u32 v)
+{
+    p[0] = (u8)(v >> 24), p[1] = (u8)(v >> 16), p[2] = (u8)(v >> 8), p[3] = (u8)v;
+    return p + 4;
+}
+
+/* Close a PNG chunk that starts at `start` (length field) and ends at p. */
+static u8 *end_chunk(u8 *start, u8 *p)
+{
+    put32(start, (u32)(p - start - 8));
+    u32 crc = crc32_update(0xffffffff, start + 4, (size_t)(p - start - 4)) ^ 0xffffffff;
+    return put32(p, crc);
+}
+
+/* The screen as a PNG (uncompressed deflate blocks: simple, and fast). */
+static int cmd_screenshot(int argc, char **argv)
+{
+    struct framebuffer *fb = fbcon_screen();
+    if (!fb) {
+        printk("screenshot: no display\n");
+        return 1;
+    }
+    const char *path = argc > 1 ? argv[1] : "/home/screenshot.png";
+    if (active) {
+        ptr_hidden = true;
+        damage(pointer_rect(cur_x, cur_y));
+        damage_bar(); /* current tray state */
+        present();
+    }
+    u32 w = fb->width, h = fb->height;
+    size_t raw = (size_t)h * (1 + w * 3);
+    size_t blocks = (raw + 65534) / 65535;
+    size_t cap = 8 + 25 + 12 + 2 + blocks * 5 + raw + 4 + 12;
+    u8 *png = kmalloc(cap);
+    if (!png) {
+        printk("screenshot: out of memory\n");
+        return 1;
+    }
+    u8 *p = png;
+    memcpy(p, "\x89PNG\r\n\x1a\n", 8);
+    p += 8;
+    u8 *c = p;
+    p = put32(p, 0);
+    memcpy(p, "IHDR", 4), p += 4;
+    p = put32(p, w), p = put32(p, h);
+    *p++ = 8, *p++ = 2, *p++ = 0, *p++ = 0, *p++ = 0; /* 8-bit RGB */
+    p = end_chunk(c, p);
+    c = p;
+    p = put32(p, 0);
+    memcpy(p, "IDAT", 4), p += 4;
+    *p++ = 0x78, *p++ = 0x01;
+    u32 a1 = 1, a2 = 0;
+    size_t left = raw, in_block = 0;
+    for (u32 y = 0; y < h; y++) {
+        const u32 *row = (const u32 *)(fb->base + (size_t)y * fb->stride);
+        for (u32 x = 0; x <= w * 3; x++) {
+            u8 b;
+            if (x == 0) {
+                b = 0; /* no filter */
+            } else {
+                u32 v = row[(x - 1) / 3];
+                if (fb->bgr)
+                    v = (v & 0xff) << 16 | (v & 0xff00) | (v >> 16 & 0xff);
+                int ch = (int)((x - 1) % 3);
+                b = (u8)(v >> (16 - 8 * ch));
+            }
+            if (!in_block) {
+                size_t n = left < 65535 ? left : 65535;
+                *p++ = left <= 65535; /* BFINAL, stored */
+                *p++ = (u8)n, *p++ = (u8)(n >> 8), *p++ = (u8)~n, *p++ = (u8)(~n >> 8);
+                in_block = n;
+            }
+            *p++ = b;
+            in_block--, left--;
+            a1 = (a1 + b) % 65521;
+            a2 = (a2 + a1) % 65521;
+        }
+    }
+    p = put32(p, a2 << 16 | a1);
+    p = end_chunk(c, p);
+    c = p;
+    p = put32(p, 0);
+    memcpy(p, "IEND", 4), p += 4;
+    p = end_chunk(c, p);
+    if (active) {
+        ptr_hidden = false;
+        damage(pointer_rect(cur_x, cur_y));
+        present();
+    }
+    int e = fs_write_all(path, png, (size_t)(p - png));
+    kfree(png);
+    if (e < 0) {
+        printk("screenshot: %s: %s\n", path, fs_strerror(e));
+        return 1;
+    }
+    printk("screenshot: saved %s (%ux%u)\n", path, w, h);
+    return 0;
+}
+SHELL_COMMAND(screenshot, "screenshot", "screenshot [FILE]", "save the screen as a PNG image",
+              cmd_screenshot);
