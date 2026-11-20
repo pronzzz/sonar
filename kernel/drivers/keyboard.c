@@ -76,6 +76,11 @@ void kbd_key(struct kbd_state *in, u16 code, int value)
             ui_function_key(code <= KEY_F10 ? code - KEY_F1 + 1 : code - KEY_F11 + 11);
         return;
     }
+    if (code == KEY_LEFTMETA || code == KEY_RIGHTMETA) {
+        if (value == 1)
+            ui_function_key(UI_FKEY_SUPER);
+        return;
+    }
     switch (code) {
     case KEY_LEFTSHIFT: in->shift_l = down; return;
     case KEY_RIGHTSHIFT: in->shift_r = down; return;
@@ -104,6 +109,23 @@ void kbd_key(struct kbd_state *in, u16 code, int value)
     case KEY_KPSLASH: seq = "/"; break;
     case KEY_KPEQUAL: seq = "="; break;
     }
+    if (ui_keyboard_grabbed()) {
+        int k = 0;
+        switch (code) {
+        case KEY_UP: k = UI_KEY_UP; break;
+        case KEY_DOWN: k = UI_KEY_DOWN; break;
+        case KEY_LEFT: k = UI_KEY_LEFT; break;
+        case KEY_RIGHT: k = UI_KEY_RIGHT; break;
+        case KEY_HOME: k = UI_KEY_HOME; break;
+        case KEY_END: k = UI_KEY_END; break;
+        case KEY_DELETE: k = UI_KEY_DELETE; break;
+        case KEY_KPENTER: k = '\r'; break;
+        }
+        if (k) {
+            ui_key(k);
+            return;
+        }
+    }
     if (code >= KEY_KP7 && code <= KEY_KPDOT) {
         console_input(&keypad[code - KEY_KP7], 1);
         return;
@@ -127,6 +149,10 @@ void kbd_key(struct kbd_state *in, u16 code, int value)
             c = 27;
         else
             return;
+    }
+    if (ui_keyboard_grabbed() && !(in->ctrl_l || in->ctrl_r)) {
+        ui_key((u8)c);
+        return;
     }
     console_input(&c, 1);
 }

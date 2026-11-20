@@ -26,8 +26,10 @@ built-in keyboard and trackpad. See [docs/hardware.md](docs/hardware.md).
   with a metadata journal, and a host tool that builds and checks images.
 - **Network:** Ethernet, ARP, IPv4, ICMP, UDP, TCP, DHCP, DNS; `ping`,
   `host`, and `fetch` over HTTP.
-- **Desktop:** a compositor with windows, a dock, a terminal, a system
-  monitor and a file browser ([docs/desktop.md](docs/desktop.md)).
+- **Desktop:** a compositor with windows, a permanent taskbar with a
+  DeepSeek button and universal search (apps, commands, files, arithmetic,
+  questions), a terminal, a system monitor and a file browser
+  ([docs/desktop.md](docs/desktop.md)).
 - **DeepSeek:** a GGUF inference engine (llama, qwen2, qwen3 models;
   llama.cpp quantizations; NEON and int8 dot-product code). At first boot
   you choose which DeepSeek-R1 model to use, from the ones on the disks,

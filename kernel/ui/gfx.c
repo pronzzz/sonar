@@ -267,3 +267,108 @@ int gfx_text_fit(struct surface *s, int x, int y, const char *str, u32 color, in
     memcpy(buf + keep, "...", 4);
     return gfx_text(s, x, y, buf, color, scale);
 }
+
+/* ---- UI text: the console font, proportionally spaced and smoothed ----
+ * Each glyph is trimmed to the columns it uses (plus one column of space);
+ * pixels that close a diagonal step get a faint coverage, which takes the
+ * hard edge off the bitmap font at UI sizes. */
+static u8 ui_left[128], ui_adv[128];
+static bool ui_ready;
+
+static void ui_metrics(void)
+{
+    for (int c = 0; c < 128; c++) {
+        u8 used = 0;
+        for (int r = 0; r < 16; r++)
+            used |= font8x16[c][r];
+        if (!used) {
+            ui_left[c] = 0;
+            ui_adv[c] = c == ' ' ? 4 : 0;
+            continue;
+        }
+        int l = 0, rgt = 7;
+        while (!(used & (0x80 >> l)))
+            l++;
+        while (!(used & (0x80 >> rgt)))
+            rgt--;
+        ui_left[c] = (u8)l;
+        ui_adv[c] = (u8)(rgt - l + 2);
+    }
+    ui_ready = true;
+}
+
+static inline bool fbit(const u8 *bits, int gx, int gy)
+{
+    return gx >= 0 && gx < 8 && gy >= 0 && gy < 16 && (bits[gy] & (0x80 >> gx));
+}
+
+static void ui_glyph(struct surface *s, int x, int y, u8 c, u32 color, int scale, bool bold)
+{
+    const u8 *bits = font8x16[c & 127];
+    int l = ui_left[c & 127];
+    for (int gy = 0; gy < 16; gy++)
+        for (int gx = 0; gx < 8; gx++) {
+            bool on = fbit(bits, gx, gy) || (bold && fbit(bits, gx - 1, gy));
+            int a = 256;
+            if (!on) {
+                bool lft = fbit(bits, gx - 1, gy) || (bold && fbit(bits, gx - 2, gy));
+                bool rgt = fbit(bits, gx + 1, gy) || (bold && fbit(bits, gx, gy));
+                bool up = fbit(bits, gx, gy - 1) || (bold && fbit(bits, gx - 1, gy - 1));
+                bool dn = fbit(bits, gx, gy + 1) || (bold && fbit(bits, gx - 1, gy + 1));
+                if (!((lft || rgt) && (up || dn)))
+                    continue;
+                a = 72; /* inside corner of a diagonal step */
+            }
+            struct rect px = rect_intersect(rect_make(x + (gx - l) * scale, y + gy * scale, scale, scale),
+                                            s->clip);
+            if (rect_empty(px))
+                continue;
+            if (a == 256)
+                gfx_fill(s, px, color);
+            else
+                gfx_blend(s, px, color, a);
+        }
+}
+
+int gfx_ui_width(const char *str, int scale, bool bold)
+{
+    if (!ui_ready)
+        ui_metrics();
+    int w = 0;
+    for (; *str; str++) {
+        u8 c = (u8)*str < 128 ? (u8)*str : '?';
+        w += (ui_adv[c] + (bold && ui_adv[c] && c != ' ')) * scale;
+    }
+    return w;
+}
+
+int gfx_ui_text(struct surface *s, int x, int y, const char *str, u32 color, int scale, bool bold)
+{
+    if (!ui_ready)
+        ui_metrics();
+    int x0 = x;
+    for (; *str; str++) {
+        u8 c = (u8)*str < 128 ? (u8)*str : '?';
+        if (c != ' ')
+            ui_glyph(s, x, y, c, color, scale, bold);
+        x += (ui_adv[c] + (bold && ui_adv[c] && c != ' ')) * scale;
+    }
+    return x - x0;
+}
+
+int gfx_ui_fit(struct surface *s, int x, int y, const char *str, u32 color, int scale, bool bold,
+               int max_w)
+{
+    if (gfx_ui_width(str, scale, bold) <= max_w)
+        return gfx_ui_text(s, x, y, str, color, scale, bold);
+    char buf[200];
+    int n = (int)MIN(strlen(str), sizeof(buf) - 4);
+    memcpy(buf, str, (size_t)n);
+    while (n > 0) {
+        memcpy(buf + n, "...", 4);
+        if (gfx_ui_width(buf, scale, bold) <= max_w)
+            break;
+        n--;
+    }
+    return n > 0 ? gfx_ui_text(s, x, y, buf, color, scale, bold) : 0;
+}

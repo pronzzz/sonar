@@ -41,6 +41,11 @@ void gfx_blit(struct surface *dst, int x, int y, const struct surface *src);
 int gfx_text(struct surface *s, int x, int y, const char *str, u32 color, int scale);
 int gfx_text_bold(struct surface *s, int x, int y, const char *str, u32 color, int scale);
 int gfx_text_width(const char *str, int scale);
+/* UI text: the same font, proportionally spaced and edge-smoothed. */
+int gfx_ui_text(struct surface *s, int x, int y, const char *str, u32 color, int scale, bool bold);
+int gfx_ui_width(const char *str, int scale, bool bold);
+int gfx_ui_fit(struct surface *s, int x, int y, const char *str, u32 color, int scale, bool bold,
+               int max_w);
 /* Text cut to fit max_w pixels, ending in "..." when shortened. */
 int gfx_text_fit(struct surface *s, int x, int y, const char *str, u32 color, int scale, int max_w);
 
