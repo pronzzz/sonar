@@ -1,0 +1,65 @@
+# Signed releases for Sonar's updater (docs/updates.md).
+#
+# On a v* tag: build build/Image, sign its manifest with the Ed25519 key in
+# the SONAR_UPDATE_SIGNING_KEY secret, and publish a GitHub release with
+# the kernel, sonar-update.txt and SHA256SUMS (tools/release.sh --publish).
+# On pull requests: build and run the crypto tests only; nothing is signed.
+#
+# If Actions cannot run for this repository, run tools/release.sh --publish
+# locally instead; it does the same thing.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "kernel/**"
+      - "tools/**"
+      - "tests/**"
+      - "Makefile"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang lld llvm
+          clang --version | head -1
+
+      - name: Crypto tests
+        run: make test-crypto
+
+      - name: Build
+        run: make -j"$(nproc)"
+
+      - name: Check the tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(sed -n 's/^#define OS_VERSION "\(.*\)"$/\1/p' kernel/include/kernel.h)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match OS_VERSION $version in kernel/include/kernel.h"
+            exit 1
+          fi
+
+      - name: Sign and publish
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          SONAR_UPDATE_SIGNING_KEY: ${{ secrets.SONAR_UPDATE_SIGNING_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          SONAR_REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$SONAR_UPDATE_SIGNING_KEY" ]; then
+            echo "::error::the SONAR_UPDATE_SIGNING_KEY secret is not set (docs/updates.md)"
+            exit 1
+          fi
+          tools/release.sh --publish

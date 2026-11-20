@@ -43,8 +43,15 @@ struct efi_handoff {
     u64 boot_epoch;         /* UEFI GetTime() as seconds since 1970 (UTC assumed), 0 if none */
     u64 boot_counter;       /* CNTVCT_EL0 when it was read */
     u32 uefi_rev;
+    /* Updates (docs/updates.md, efi_update.c): set in a kernel the loader
+     * started from /boot/kernel on the system disk. */
+    u32 chained;            /* this kernel is an installed update */
+    char chained_sha[65];   /* its SHA-256 (hex), for /boot/ok */
+    char update_note[160];  /* what the loader decided about /boot/kernel, if anything */
 };
 
-extern struct efi_handoff efi_handoff;
+/* Hidden, so code that runs in the UEFI stub before relocation
+ * (efi_update.c) reaches it PC-relative instead of through the GOT. */
+extern struct efi_handoff efi_handoff __attribute__((visibility("hidden")));
 
 static inline bool efi_booted(void) { return efi_handoff.magic == EFI_HANDOFF_MAGIC; }

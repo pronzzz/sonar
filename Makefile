@@ -7,9 +7,15 @@
 #   make run-uefi        boot build/esp.img through UEFI firmware (edk2) in QEMU
 #   make smoke           boot once and check the shell, file system and CPUs
 #   make test-host       build the host-side AI engine test and run the TCP tests
+#   make test-crypto     check kernel/crypto against OpenSSL-made test vectors
+#   make test-update     signed-update test in QEMU (UEFI): install, verify, reboot
 #
 #   MODEL=path/to/model.gguf   attach a DeepSeek GGUF model (run, run-desktop, esp)
 #   RAM=8G CPUS=4              guest memory and processors
+#   ESP_SYSTEM=1               make esp/run-uefi: put the system disk in its own
+#                              partition (kept across boots, needed for updates)
+#   VERSION=x.y.z              build with another version number (update tests)
+#   UPDATE_KEY=path/key.h      build with another update-signing public key
 #
 # Requires clang + ld.lld (LLVM), qemu-system-aarch64 and python3.
 
@@ -52,10 +58,23 @@ AICFLAGS := $(COMMON) -O3 -fno-math-errno -DSONAR_KERNEL -Ikernel/ai
 # The portable engine (also built on the host by test-host).
 AI_ENGINE := aimath gguf quant qdot tokenizer model sampler chat
 
+# Test builds of the updater (tools/test_update.py): another version number
+# or signing key. Only taken from the command line.
+ifeq ($(origin VERSION),command line)
+  KCFLAGS += -DOS_VERSION='"$(VERSION)"'
+endif
+ifneq ($(UPDATE_KEY),)
+  KCFLAGS += -I. -DUPDATE_KEY_FILE='"$(UPDATE_KEY)"'
+endif
+ifneq ($(TEST_FAIL_BOOT),)
+  KCFLAGS += -DSONAR_TEST_FAIL_BOOT
+endif
+
 LDFLAGS := -T kernel/arch/arm64/linker.ld --pie --no-dynamic-linker -z notext \
            -z norelro --build-id=none --no-undefined -nostdlib -static
 
-.PHONY: all clean run run-tcg run-desktop esp run-uefi smoke test-host test-net
+.PHONY: all clean run run-tcg run-desktop esp run-uefi smoke test-host test-net test-crypto \
+        test-update
 all: $(BUILD)/Image
 
 $(BUILD)/kernel/ai/%.o: kernel/ai/%.c
@@ -139,9 +158,11 @@ run-desktop: $(BUILD)/Image $(SYSTEM_IMG)
 # \EFI\BOOT\BOOTAA64.EFI, the system image and (with MODEL=) the model.
 # Write it to a USB stick to boot a UEFI arm64 computer (docs/hardware.md).
 ESP_IMG ?= $(BUILD)/esp.img
+ESP_SYSTEM ?=
 esp: $(BUILD)/Image $(SYSTEM_IMG)
 	python3 tools/mkesp.py $(ESP_IMG) EFI/BOOT/BOOTAA64.EFI=$(BUILD)/Image \
-	  sonar/system.img=$(SYSTEM_IMG) $(if $(MODEL),sonar/model.gguf=$(MODEL))
+	  $(if $(ESP_SYSTEM),--system $(SYSTEM_IMG),sonar/system.img=$(SYSTEM_IMG)) \
+	  $(if $(MODEL),sonar/model.gguf=$(MODEL))
 
 # UEFI firmware for QEMU's virt machine (edk2). QEMU ships one; distribution
 # packages may put it elsewhere.
@@ -178,7 +199,7 @@ $(BUILD)/aitest: $(AI_ENGINE:%=kernel/ai/%.c) tests/host/aitest.c tests/host/hos
 	@$(HOSTCC) $(HOST_AIFLAGS) -o $@ $(AI_ENGINE:%=kernel/ai/%.c) tests/host/aitest.c \
 	  tests/host/host_platform.c
 
-test-host: $(BUILD)/aitest test-net
+test-host: $(BUILD)/aitest test-net test-crypto
 	@echo "built $(BUILD)/aitest; run: $(BUILD)/aitest MODEL.gguf --chat 'hello'"
 
 # The kernel's TCP against a simulated lossy network (tests/host/tcptest.c).
@@ -191,3 +212,21 @@ $(BUILD)/tcptest: kernel/net/tcp.c tests/host/tcptest.c kernel/include/net.h ker
 
 test-net: $(BUILD)/tcptest
 	@$(BUILD)/tcptest
+
+# kernel/crypto against vectors computed with OpenSSL (tools/gen_crypto_vectors.py).
+CRYPTO_SRC := kernel/crypto/sha2.c kernel/crypto/chacha.c kernel/crypto/curve25519.c
+$(BUILD)/cryptotest: $(CRYPTO_SRC) tests/host/cryptotest.c tests/host/crypto_vectors.h \
+                     kernel/include/crypto.h
+	@mkdir -p $(BUILD)
+	@echo "  HOSTCC $@"
+	@$(HOSTCC) -O1 -g -std=gnu11 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare \
+	  -fsanitize=address,undefined -iquote kernel/include -iquote tests/host -o $@ \
+	  $(CRYPTO_SRC) tests/host/cryptotest.c
+
+test-crypto: $(BUILD)/cryptotest
+	@$(BUILD)/cryptotest
+
+# Signed updates end to end: two kernels signed with a throwaway key, a
+# local stand-in for GitHub's release API over HTTPS, UEFI boots in QEMU.
+test-update:
+	python3 tools/test_update.py

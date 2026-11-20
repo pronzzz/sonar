@@ -12,6 +12,7 @@
 #include "shell.h"
 #include "smp.h"
 #include "ui.h"
+#include "update.h"
 
 void devices_init(void);
 void fs_boot(void);
@@ -69,6 +70,7 @@ void kmain(void)
     fs_boot();
     config_load();
     net_boot();
+    update_boot(); /* confirms a newly installed kernel; update.auto checks */
     ui_boot(); /* the desktop first, so first-time setup runs in its Terminal */
     ai_boot();
     shell_run();

@@ -4,7 +4,12 @@
 #include "types.h"
 
 #define OS_NAME "Sonar"
+/* The release version: tools/release.sh and the release workflow read it
+ * from here, and a v* tag must match it. `make VERSION=x.y.z` overrides
+ * it (test builds of the updater). */
+#ifndef OS_VERSION
 #define OS_VERSION "0.1.0"
+#endif
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #define ALIGN_UP(x, a) (((x) + ((a) - 1)) & ~((__typeof__(x))(a) - 1))

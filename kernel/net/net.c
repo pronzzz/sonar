@@ -44,6 +44,7 @@ const char *net_strerror(int e)
     case NET_EINVAL: return "invalid argument";
     case NET_ECLOSED: return "connection closed";
     case NET_ENODEV: return "no network interface";
+    case NET_ETLS: return "TLS error";
     }
     return "error";
 }

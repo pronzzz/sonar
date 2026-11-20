@@ -75,6 +75,11 @@ does not yet (no USB mass storage driver), so when booting from a stick,
 keep `sonar/system.img` on the EFI partition, which the loader copies into
 RAM (changes are then lost at power-off).
 
+The system partition is also where `update install` puts new kernels
+(`/boot/kernel`), which the loader on the EFI partition starts in its
+place; `make esp ESP_SYSTEM=1` builds such a disk
+([updates.md](updates.md)).
+
 The model is used where the firmware loaded it, so it is not copied again.
 A machine needs RAM for the model file plus about 1 GiB (the setup wizard
 shows the exact figure).
